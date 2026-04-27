@@ -1,0 +1,36 @@
+{
+    "name": "pepeiborra/ci4-traffic-reader",
+    "description": "Lightweight SIEM filter for CodeIgniter 4: visit tracking, threat detection, and security alerting.",
+    "type": "library",
+    "keywords": ["codeigniter4", "codeigniter", "siem", "security", "filter", "threat-detection", "audit", "traffic"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Pepe Iborra"
+        }
+    ],
+    "require": {
+        "php": "^7.4|^8.0|^8.1|^8.2|^8.3",
+        "codeigniter4/framework": "^4.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0|^10.0|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Pepeiborra\\CI4TrafficReader\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Pepeiborra\\CI4TrafficReader\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "codeigniter4": {
+            "registrar": "Pepeiborra\\CI4TrafficReader\\TrafficReaderRegistrar"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
