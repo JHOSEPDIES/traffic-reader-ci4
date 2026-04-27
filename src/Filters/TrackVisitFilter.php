@@ -3,16 +3,17 @@
 namespace Pepeiborra\CI4TrafficReader\Filters;
 
 use CodeIgniter\Filters\FilterInterface;
+use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 use CodeIgniter\Cache\CacheInterface;
+use Config\Services;
+use DateTime;
 use Pepeiborra\CI4TrafficReader\Config\TrafficReader as TrafficReaderConfig;
 use Pepeiborra\CI4TrafficReader\Services\ThreatMailer;
 
 class TrackVisitFilter implements FilterInterface
 {
-    // ─── Extensiones y rutas a ignorar ───────────────────────────────────────
-
     private array $excludeExtensions = [
         'css', 'js', 'map',
         'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp',
@@ -23,8 +24,6 @@ class TrackVisitFilter implements FilterInterface
     private array $excludePaths = [
         'traffic-reader',
     ];
-
-    // ─── Patrones de amenaza ──────────────────────────────────────────────────
 
     private array $rcePatterns = [
         'allow_url_include', 'auto_prepend_file', 'php://input',
@@ -78,15 +77,11 @@ class TrackVisitFilter implements FilterInterface
         'SENSITIVE_PROBE',
     ];
 
-    // ─── Before: no hace nada, solo dejamos pasar ─────────────────────────────
-
     public function before(RequestInterface $request, $arguments = null)
     {
         // El tracking se hace after para conocer el status code
         return null;
     }
-
-    // ─── After: registra la visita ────────────────────────────────────────────
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
     {
@@ -100,11 +95,9 @@ class TrackVisitFilter implements FilterInterface
         return null;
     }
 
-    // ─── Registro principal ───────────────────────────────────────────────────
-
     private function record(RequestInterface $request, ResponseInterface $response): void
     {
-        /** @var \CodeIgniter\HTTP\IncomingRequest $request */
+        /** @var IncomingRequest $request */
         $uri    = $request->getUri();
         $path   = ltrim($uri->getPath(), '/');
         $config = config(TrafficReaderConfig::class);
@@ -115,14 +108,12 @@ class TrackVisitFilter implements FilterInterface
             return;
         }
 
-        // Ignorar rutas internas del paquete
         foreach ($this->excludePaths as $prefix) {
             if (str_starts_with($path, $prefix)) {
                 return;
             }
         }
 
-        // Ignorar rutas configuradas por el usuario
         foreach ($config->excludePaths as $prefix) {
             if (str_starts_with($path, ltrim($prefix, '/'))) {
                 return;
@@ -131,7 +122,7 @@ class TrackVisitFilter implements FilterInterface
 
         $ua         = $request->getUserAgent()->getAgentString() ?? 'UNKNOWN';
         $statusCode = $response->getStatusCode();
-        $now        = new \DateTime();
+        $now        = new DateTime();
 
         $threats  = array_merge(
             $this->detectPatterns($request),
@@ -171,14 +162,12 @@ class TrackVisitFilter implements FilterInterface
             mkdir($folder, 0755, true);
         }
 
-        // Log diario de visitas
         file_put_contents(
             $folder . '/visits_' . $now->format('Y-m-d') . '.txt',
             $line,
             FILE_APPEND | LOCK_EX
         );
 
-        // Log de amenazas
         if ($isThreat) {
             file_put_contents(
                 $folder . '/threats_' . $now->format('Y-m-d') . '.txt',
@@ -186,7 +175,6 @@ class TrackVisitFilter implements FilterInterface
                 FILE_APPEND | LOCK_EX
             );
 
-            // Alertas para amenazas críticas
             $criticalThreats = array_values(array_filter(
                 $threats,
                 fn($t) => in_array($t['type'], $this->criticalThreatTypes, true)
@@ -198,11 +186,9 @@ class TrackVisitFilter implements FilterInterface
         }
     }
 
-    // ─── Detección de patrones (sin estado) ──────────────────────────────────
-
     private function detectPatterns(RequestInterface $request): array
     {
-        /** @var \CodeIgniter\HTTP\IncomingRequest $request */
+        /** @var IncomingRequest $request */
         $threats = [];
         $url     = rawurldecode('/' . ltrim($request->getUri()->getPath(), '/'));
         $qs      = $request->getUri()->getQuery();
@@ -253,8 +239,6 @@ class TrackVisitFilter implements FilterInterface
         return $threats;
     }
 
-    // ─── Cache key segura (solo alphanum + underscore) ────────────────────────
-
     private function cacheKey(string $prefix, string $ip, string $window): string
     {
         // Elimina todo lo que no sea letra, número o guión bajo
@@ -263,22 +247,18 @@ class TrackVisitFilter implements FilterInterface
         return "tr_{$prefix}_{$safeIp}_{$safeWindow}";
     }
 
-    // ─── Detección de anomalías con estado (Cache de CI4) ────────────────────
-
     private function detectRateAnomalies(
         RequestInterface $request,
         int $statusCode,
         TrafficReaderConfig $config
     ): array {
         $threats = [];
-        /** @var CacheInterface $cache */
-        $cache  = \Config\Services::cache();
+        $cache  = Services::cache();
         $ip     = $request->getIPAddress();
-        $now    = new \DateTime();
+        $now    = new DateTime();
         $window = $now->format('YmdHi');  // sin guiones ni colons
         $hour   = $now->format('YmdH');
 
-        // Alta tasa
         $rateKey   = $this->cacheKey('rate', $ip, $window);
         $rateCount = (int)($cache->get($rateKey) ?? 0) + 1;
         $cache->save($rateKey, $rateCount, 90);
@@ -287,7 +267,6 @@ class TrackVisitFilter implements FilterInterface
             $threats[] = ['type' => 'HIGH_RATE', 'rpm' => $rateCount, 'threshold' => $config->rateThreshold];
         }
 
-        // Route scan (404s)
         if ($statusCode === 404) {
             $nfKey   = $this->cacheKey('404', $ip, $hour);
             $nfCount = (int)($cache->get($nfKey) ?? 0) + 1;
@@ -298,7 +277,6 @@ class TrackVisitFilter implements FilterInterface
             }
         }
 
-        // Sensitive probe
         $path = ltrim($request->getUri()->getPath(), '/');
         foreach ($this->sensitiveRoutes as $route) {
             if (stripos($path, $route) !== false) {
@@ -313,7 +291,6 @@ class TrackVisitFilter implements FilterInterface
             }
         }
 
-        // Brute force (401/403)
         if (in_array($statusCode, [401, 403], true)) {
             $bfKey   = $this->cacheKey('bf', $ip, $hour);
             $bfCount = (int)($cache->get($bfKey) ?? 0) + 1;
@@ -326,8 +303,6 @@ class TrackVisitFilter implements FilterInterface
 
         return $threats;
     }
-
-    // ─── UA helpers ──────────────────────────────────────────────────────────
 
     private function device(string $ua): string
     {
