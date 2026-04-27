@@ -253,6 +253,16 @@ class TrackVisitFilter implements FilterInterface
         return $threats;
     }
 
+    // ─── Cache key segura (solo alphanum + underscore) ────────────────────────
+
+    private function cacheKey(string $prefix, string $ip, string $window): string
+    {
+        // Elimina todo lo que no sea letra, número o guión bajo
+        $safeIp     = preg_replace('/[^a-zA-Z0-9]/', '_', $ip);
+        $safeWindow = preg_replace('/[^a-zA-Z0-9]/', '_', $window);
+        return "tr_{$prefix}_{$safeIp}_{$safeWindow}";
+    }
+
     // ─── Detección de anomalías con estado (Cache de CI4) ────────────────────
 
     private function detectRateAnomalies(
@@ -265,11 +275,11 @@ class TrackVisitFilter implements FilterInterface
         $cache  = \Config\Services::cache();
         $ip     = $request->getIPAddress();
         $now    = new \DateTime();
-        $window = $now->format('Y-m-d-H-i');
-        $hour   = $now->format('Y-m-d-H');
+        $window = $now->format('YmdHi');  // sin guiones ni colons
+        $hour   = $now->format('YmdH');
 
         // Alta tasa
-        $rateKey   = "tr_rate_{$ip}_{$window}";
+        $rateKey   = $this->cacheKey('rate', $ip, $window);
         $rateCount = (int)($cache->get($rateKey) ?? 0) + 1;
         $cache->save($rateKey, $rateCount, 90);
 
@@ -279,7 +289,7 @@ class TrackVisitFilter implements FilterInterface
 
         // Route scan (404s)
         if ($statusCode === 404) {
-            $nfKey   = "tr_404_{$ip}_{$hour}";
+            $nfKey   = $this->cacheKey('404', $ip, $hour);
             $nfCount = (int)($cache->get($nfKey) ?? 0) + 1;
             $cache->save($nfKey, $nfCount, 3600);
 
@@ -292,7 +302,7 @@ class TrackVisitFilter implements FilterInterface
         $path = ltrim($request->getUri()->getPath(), '/');
         foreach ($this->sensitiveRoutes as $route) {
             if (stripos($path, $route) !== false) {
-                $probeKey   = "tr_probe_{$ip}_{$hour}";
+                $probeKey   = $this->cacheKey('probe', $ip, $hour);
                 $probeCount = (int)($cache->get($probeKey) ?? 0) + 1;
                 $cache->save($probeKey, $probeCount, 3600);
 
@@ -305,7 +315,7 @@ class TrackVisitFilter implements FilterInterface
 
         // Brute force (401/403)
         if (in_array($statusCode, [401, 403], true)) {
-            $bfKey   = "tr_bf_{$ip}_{$hour}";
+            $bfKey   = $this->cacheKey('bf', $ip, $hour);
             $bfCount = (int)($cache->get($bfKey) ?? 0) + 1;
             $cache->save($bfKey, $bfCount, 3600);
 
